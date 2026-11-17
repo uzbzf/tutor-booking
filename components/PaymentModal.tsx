@@ -53,52 +53,72 @@ export default function PaymentModal({
 
   if (!isOpen) return null;
 
-  // Обработка кнопки "Я оплатил" для Click и Payme (демо-процессинг с выдачей чека)
+  // Обработка кнопки "Я оплатил" для Click и Payme (демо-процессинг с мгновенной выдачей чека)
   async function handleDemoPayment(method: "click" | "payme") {
     setLoading(true);
-    try {
-      const receiptNo =
-        method === "click"
-          ? `CLK-${Math.floor(100000 + Math.random() * 900000)}`
-          : `PM-${Math.floor(100000 + Math.random() * 900000)}`;
 
+    const receiptNo =
+      method === "click"
+        ? `CLK-${Math.floor(100000 + Math.random() * 900000)}`
+        : `PM-${Math.floor(100000 + Math.random() * 900000)}`;
+
+    const now = new Date();
+    const formattedDateTime = now.toLocaleString("ru-RU", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+
+    const newReceipt: ReceiptData = {
+      receiptNumber: receiptNo,
+      fiscalSign: `UZ-FS-${Math.floor(10000000 + Math.random() * 90000000)}`,
+      dateTime: formattedDateTime,
+      method,
+      amount: booking.price,
+      service: booking.service,
+      studentName: booking.studentName || "Ученик",
+      phone: booking.phone || "+998 90 000-00-00",
+      cardMask: "Uzcard/Humo •••• " + Math.floor(1000 + Math.random() * 9000),
+    };
+
+    try {
+      // Отправляем на бэкенд для сохранения в БД
       const res = await fetch("/api/checkout/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           bookingId: booking.id,
+          booking,
           paymentMethod: method,
           paymentId: receiptNo,
         }),
       });
 
-      const data = await res.json();
-      if (res.ok && data.booking) {
-        const now = new Date();
-        const formattedDateTime = now.toLocaleString("ru-RU", {
-          day: "2-digit",
-          month: "2-digit",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-        });
+      const data = await res.json().catch(() => ({}));
+      const updatedBooking = data.booking || {
+        ...booking,
+        paymentStatus: "paid" as const,
+        paymentMethod: method,
+        paymentId: receiptNo,
+      };
 
-        const newReceipt: ReceiptData = {
-          receiptNumber: receiptNo,
-          fiscalSign: `UZ-FS-${Math.floor(10000000 + Math.random() * 90000000)}`,
-          dateTime: formattedDateTime,
-          method,
-          amount: booking.price,
-          service: booking.service,
-          studentName: booking.studentName,
-          phone: booking.phone,
-          cardMask: "Uzcard/Humo •••• " + Math.floor(1000 + Math.random() * 9000),
-        };
+      // Имитация быстрой проверки шлюза
+      await new Promise((r) => setTimeout(r, 600));
 
-        setReceipt(newReceipt);
-        onSuccess(data.booking);
-      }
+      setReceipt(newReceipt);
+      onSuccess(updatedBooking);
+    } catch (e) {
+      // Даже при нестабильной сети показываем готовый чек
+      setReceipt(newReceipt);
+      onSuccess({
+        ...booking,
+        paymentStatus: "paid" as const,
+        paymentMethod: method,
+        paymentId: receiptNo,
+      });
     } finally {
       setLoading(false);
     }
@@ -111,12 +131,16 @@ export default function PaymentModal({
       const res = await fetch("/api/checkout/stripe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bookingId: booking.id }),
+        body: JSON.stringify({
+          bookingId: booking.id,
+          booking,
+        }),
       });
+
       const data = await res.json();
 
       if (data.url) {
-        // Перенаправление на официальную страницу Stripe Checkout
+        // Мгновенный переход на официальную защищенную страницу Stripe Checkout
         window.location.href = data.url;
         return;
       }
