@@ -19,61 +19,57 @@ export async function POST(req: NextRequest) {
     }
 
     const secretKey = process.env.STRIPE_SECRET_KEY;
-    const origin = req.nextUrl.origin || "http://localhost:3000";
-
-    // Если есть реальный ключ Stripe — создаем Checkout Session
-    if (secretKey) {
-      const stripe = new Stripe(secretKey, {
-        apiVersion: "2024-06-20" as Stripe.LatestApiVersion,
-      });
-
-      // В Stripe для валют без делений (или с тийинами)
-      // Для UZS в Stripe минимальная единица 100 тийин, как центы: 1 сум = 100 тийин
-      const unitAmount = booking.price * 100;
-
-      const session = await stripe.checkout.sessions.create({
-        line_items: [
-          {
-            price_data: {
-              currency: "uzs",
-              product_data: {
-                name: booking.service,
-                description: `Заказ #${booking.id} для ${booking.studentName} (${formatUzs(booking.price)})`,
-              },
-              unit_amount: unitAmount,
-            },
-            quantity: 1,
-          },
-        ],
-        mode: "payment",
-        metadata: {
-          bookingId: booking.id,
-        },
-        success_url: `${origin}/?payment=success&orderId=${booking.id}&method=stripe`,
-        cancel_url: `${origin}/?payment=cancelled&orderId=${booking.id}`,
-      });
-
-      return NextResponse.json({
-        mode: "live",
-        url: session.url,
-        sessionId: session.id,
-      });
+    if (!secretKey) {
+      return NextResponse.json(
+        { error: "Stripe Secret Key не настроен в переменных окружения STRIPE_SECRET_KEY" },
+        { status: 500 }
+      );
     }
 
-    // Если ключа нет — возвращаем демо-режим со встроенной оплатой
-    return NextResponse.json({
-      mode: "demo",
-      url: null,
-      message: "Stripe запущен в интерактивном демо-режиме (без необходимости вводить секретные API-ключи).",
-      booking: {
-        id: booking.id,
-        service: booking.service,
-        price: booking.price,
-        formattedPrice: formatUzs(booking.price),
+    const origin =
+      req.headers.get("origin") ||
+      req.headers.get("referer")?.replace(/\/$/, "") ||
+      req.nextUrl.origin ||
+      "http://localhost:3000";
+
+    const stripe = new Stripe(secretKey, {
+      apiVersion: "2024-06-20" as Stripe.LatestApiVersion,
+    });
+
+    // В Stripe для UZS: unit_amount = цена * 100 тийинов
+    const unitAmount = booking.price * 100;
+
+    const session = await stripe.checkout.sessions.create({
+      line_items: [
+        {
+          price_data: {
+            currency: "uzs",
+            product_data: {
+              name: booking.service,
+              description: `Заказ #${booking.id} для ${booking.studentName} (${formatUzs(booking.price)})`,
+            },
+            unit_amount: unitAmount,
+          },
+          quantity: 1,
+        },
+      ],
+      mode: "payment",
+      metadata: {
+        bookingId: booking.id,
       },
+      customer_email: booking.email || undefined,
+      success_url: `${origin}/?payment=success&orderId=${booking.id}&session_id={CHECKOUT_SESSION_ID}&method=stripe`,
+      cancel_url: `${origin}/?payment=cancelled&orderId=${booking.id}`,
+    });
+
+    return NextResponse.json({
+      mode: "live",
+      url: session.url,
+      sessionId: session.id,
     });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Ошибка Stripe Checkout";
+    console.error("Stripe Checkout Error:", err);
+    const msg = err instanceof Error ? err.message : "Ошибка создания сессии Stripe";
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
