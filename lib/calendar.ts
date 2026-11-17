@@ -9,6 +9,7 @@ function toIcsDate(date: string, time: string, addMin = 0): string {
 }
 
 export function downloadIcs(b: Booking) {
+  const duration = b.duration > 0 ? b.duration : 60;
   const ics = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
@@ -17,16 +18,16 @@ export function downloadIcs(b: Booking) {
     `UID:${b.id}@tutor-booking`,
     `DTSTAMP:${toIcsDate(b.date, b.time)}`,
     `DTSTART:${toIcsDate(b.date, b.time)}`,
-    `DTEND:${toIcsDate(b.date, b.time, b.duration)}`,
+    `DTEND:${toIcsDate(b.date, b.time, duration)}`,
     `SUMMARY:${b.service} — Александр Воронов`,
-    `DESCRIPTION:${(b.notes || "").replace(/\n/g, " ")}`,
+    `DESCRIPTION:${(b.notes || "").replace(/\n/g, " ")} | Оплата: ${b.paymentMethod.toUpperCase()} (${b.paymentStatus})`,
     "END:VEVENT",
     "END:VCALENDAR",
   ].join("\r\n");
   const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `lesson-${b.date}.ics`;
+  a.download = `booking-${b.date}.ics`;
   a.click();
   URL.revokeObjectURL(a.href);
 }

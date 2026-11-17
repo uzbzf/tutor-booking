@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { Booking, SERVICES } from "./types";
+import { Booking, COURSES, SERVICES } from "./types";
 
 // На Vercel файловая система read-only, кроме /tmp (данные там эфемерны — для демо этого достаточно).
 const DB_DIR = process.env.VERCEL ? "/tmp/tutor-data" : path.join(process.cwd(), "data");
@@ -19,20 +19,112 @@ function addDays(n: number): string {
 
 function seed(): Booking[] {
   const mk = (
-    id: string, name: string, phone: string, email: string, sid: string,
-    date: string, time: string, status: Booking["status"], notes: string
+    id: string,
+    name: string,
+    phone: string,
+    email: string,
+    sid: string,
+    date: string,
+    time: string,
+    status: Booking["status"],
+    paymentMethod: Booking["paymentMethod"],
+    paymentStatus: Booking["paymentStatus"],
+    type: Booking["type"],
+    notes: string
   ): Booking => {
-    const s = SERVICES.find((x) => x.id === sid)!;
+    let serviceTitle = "";
+    let price = 0;
+    let duration = 60;
+
+    if (type === "course") {
+      const c = COURSES.find((x) => x.id === sid);
+      serviceTitle = c?.title || "Курс";
+      price = c?.price || 1800000;
+      duration = 0;
+    } else {
+      const s = SERVICES.find((x) => x.id === sid) || SERVICES[0];
+      serviceTitle = s.title;
+      price = s.price;
+      duration = s.duration;
+    }
+
     return {
-      id, studentName: name, phone, email, serviceId: sid, service: s.title,
-      price: s.price, duration: s.duration, date, time, status, notes,
+      id,
+      type: type || "lesson",
+      studentName: name,
+      phone,
+      email,
+      serviceId: sid,
+      service: serviceTitle,
+      price,
+      duration,
+      date,
+      time,
+      status,
+      paymentMethod,
+      paymentStatus,
+      notes,
       createdAt: new Date().toISOString(),
     };
   };
+
   return [
-    mk("demo0001", "Анна Петрова", "+7 900 123-45-67", "anna@example.com", "lesson", addDays(0), "16:00", "confirmed", "Подготовка к ЕГЭ, профильная математика, параметры"),
-    mk("demo0002", "Игорь Смирнов", "@igor_smirnov", "igor@example.com", "mock", addDays(1), "11:30", "confirmed", "Разбор пробника ЕГЭ"),
-    mk("demo0003", "Мария Волкова", "+7 911 765-43-21", "maria@example.com", "express", addDays(-3), "13:00", "completed", "Вопросы по производной"),
+    mk(
+      "demo0001",
+      "Сардор Рахимов",
+      "+998 90 123-45-67",
+      "sardor@example.com",
+      "lesson",
+      addDays(0),
+      "16:00",
+      "confirmed",
+      "click",
+      "paid",
+      "lesson",
+      "Подготовка к вступительным, профильная математика"
+    ),
+    mk(
+      "demo0002",
+      "Дильноза Умарова",
+      "+998 93 987-65-43",
+      "dilnoza@example.com",
+      "course-math-pro",
+      addDays(0),
+      "12:00",
+      "confirmed",
+      "payme",
+      "paid",
+      "course",
+      "Приобретен полный курс по профильной математике"
+    ),
+    mk(
+      "demo0003",
+      "Азиз Каримов",
+      "+998 97 555-44-33",
+      "aziz@example.com",
+      "mock",
+      addDays(1),
+      "11:30",
+      "confirmed",
+      "stripe",
+      "pending",
+      "lesson",
+      "Разбор пробного экзамена по физике"
+    ),
+    mk(
+      "demo0004",
+      "Малика Алиева",
+      "@malika_al",
+      "malika@example.com",
+      "express",
+      addDays(-2),
+      "14:30",
+      "completed",
+      "click",
+      "paid",
+      "lesson",
+      "Консультация по тригонометрии"
+    ),
   ];
 }
 
@@ -58,13 +150,16 @@ function writeAll(data: Booking[]) {
 }
 
 export const db = {
-  list: (): Booking[] => readAll().sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)),
+  list: (): Booking[] =>
+    readAll().sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")),
+
   create(b: Booking) {
     const all = readAll();
     all.push(b);
     writeAll(all);
     return b;
   },
+
   update(id: string, patch: Partial<Booking>): Booking | null {
     const all = readAll();
     const i = all.findIndex((x) => x.id === id);
@@ -73,6 +168,7 @@ export const db = {
     writeAll(all);
     return all[i];
   },
+
   remove(id: string): boolean {
     const all = readAll();
     const next = all.filter((x) => x.id !== id);
@@ -80,9 +176,10 @@ export const db = {
     writeAll(next);
     return true;
   },
+
   busySlots(date: string): string[] {
     return readAll()
-      .filter((x) => x.date === date && x.status !== "cancelled")
+      .filter((x) => x.date === date && x.status !== "cancelled" && x.type !== "course")
       .map((x) => x.time);
   },
 };
